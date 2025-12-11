@@ -1,0 +1,89 @@
+# Job Sniper Configuration
+# Add or remove companies as needed
+
+companies:
+  - name: "Woven by Toyota"
+    url: "https://woven-by-toyota.com/en/careers"
+    keywords:
+      - "New Graduate"
+      - "2026"
+      - "Software Engineer"
+      - "Graduate Engineer"
+    check_interval_hours: 12
+
+  - name: "Sony"
+    url: "https://www.sony.com/en/SonyInfo/CorporateInfo/Careers/newgrads/"
+    keywords:
+      - "New Grad"
+      - "2026"
+      - "Graduate"
+      - "Recruiting"
+    check_interval_hours: 12
+
+  - name: "Rakuten"
+    url: "https://global.rakuten.com/corp/careers/graduates/"
+    keywords:
+      - "New Graduate"
+      - "2026"
+      - "Graduate Recruitment"
+    check_interval_hours: 24
+
+  - name: "Mercari"
+    url: "https://careers.mercari.com/job-categories/graduate/"
+    keywords:
+      - "New Graduate"
+      - "2026"
+      - "Graduate Program"
+    check_interval_hours: 24
+
+  - name: "Preferred Networks"
+    url: "https://www.preferred.jp/en/news/"
+    keywords:
+      - "New Graduate"
+      - "2027"
+      - "Recruiting"
+      - "Pre-Entry"
+    check_interval_hours: 24
+
+  - name: "LINE Corporation"
+    url: "https://linecorp.com/en/career/newgrads"
+    keywords:
+      - "New Graduate"
+      - "2026"
+      - "Fresh Graduate"
+    check_interval_hours: 24
+
+  - name: "DeNA"
+    url: "https://dena.com/intl/recruit/"
+    keywords:
+      - "New Graduate"
+      - "2026"
+      - "Graduate Recruitment"
+    check_interval_hours: 24
+
+# Resume Configuration
+resume:
+  base_resume_path: "./data/base_resume.md"
+  latex_template_path: "./templates/resume_template.tex"
+  output_directory: "./output/"
+
+# LLM Configuration
+llm:
+  model: "gpt-4-turbo-preview"
+  temperature: 0.7
+  max_tokens: 2000
+  fallback_model: "gpt-3.5-turbo"
+
+# Notification Settings
+notifications:
+  enabled: true
+  channels:
+    - "discord"
+  # Future: Add "email", "slack", "telegram"
+
+# Scraping Settings
+scraping:
+  timeout_seconds: 30
+  retry_attempts: 3
+  respect_robots_txt: true
+  delay_between_requests: 3

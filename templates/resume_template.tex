@@ -1,0 +1,58 @@
+% Sample LaTeX Resume Template
+% This template uses Jinja2 placeholders for dynamic content
+
+\documentclass[11pt,a4paper,sans]{moderncv}
+
+% ModernCV theme
+\moderncvstyle{classic}
+\moderncvcolor{blue}
+
+% Character encoding
+\usepackage[utf8]{inputenc}
+
+% Adjust page margins
+\usepackage[scale=0.85]{geometry}
+
+% Personal data (these will be replaced by Jinja2)
+\name{Your}{Name}
+\phone[mobile]{+1~(234)~567~8900}
+\email{your.email@example.com}
+\social[github]{yourgithub}
+\social[linkedin]{yourlinkedin}
+
+\begin{document}
+
+\makecvtitle
+
+% Professional Summary
+\section{Professional Summary}
+{{ summary }}
+
+% Work Experience
+\section{Experience}
+
+\cventry{Summer 2024}{Engineering Intern}{Johnson Controls}{City, State}{}{%
+\begin{itemize}%
+{% for bullet in experience_bullets %}
+\item {{ bullet }}
+{% endfor %}
+\end{itemize}}
+
+% Education
+\section{Education}
+\cventry{Expected 2026}{Bachelor of Science in Computer Engineering}{Your University}{City, State}{\textit{GPA: X.XX/4.0}}{}
+
+% Skills
+\section{Technical Skills}
+\cvitem{Languages}{Python, C++, Java, JavaScript}
+\cvitem{Technologies}{{{ skills }}}
+\cvitem{Tools}{Git, Docker, Linux, VS Code}
+
+% Projects (Optional)
+\section{Projects}
+\cventry{2024}{Computer Vision Project}{Personal}{}{}{\begin{itemize}
+\item Developed real-time object detection system
+\item Achieved 95\% accuracy using YOLO and OpenCV
+\end{itemize}}
+
+\end{document}
