@@ -195,7 +195,7 @@ if df_jobs is not None and len(df_jobs) > 0:
             "company": st.column_config.TextColumn("Company", width="medium"),
             "title": st.column_config.TextColumn("Job Title", width="large"),
             "date_found": st.column_config.TextColumn("Found On", width="small"),
-            "url": st.column_config.LinkColumn("Job Link", display_text="View Job"),
+            "url": st.column_config.LinkColumn("Job Link"),
             "applied_status": st.column_config.SelectboxColumn(
                 "Status",
                 options=["Pending", "CV Generated", "Applied", "Rejected", "Interview", "Offer"],
