@@ -4,6 +4,11 @@ requests==2.31.0
 playwright==1.40.0
 selenium==4.16.0
 
+# Semantic Matching (NEW - for smart_watcher_v2)
+sentence-transformers==2.2.2
+numpy==1.24.3
+torch==2.1.0  # Required by sentence-transformers
+
 # LLM Integration
 openai==1.6.1
 anthropic==0.8.1
