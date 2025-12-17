@@ -41,17 +41,16 @@ class SmartJobScraper:
 
     PRIORITY_COMPANIES = {
         # Tier 1: Confirmed 2026 New Grad Programs
-        'LY Corporation (LINE)': 'https://careers.linecorp.com/jobs/',
-        'Rakuten Group': 'https://global.rakuten.com/corp/careers/graduates',
-        'ByteDance (TikTok)': 'https://jobs.bytedance.com/en/position?keywords=graduate&category=&location=CT_222&project=7316601319918881054&type=3&job_hot_flag=&current=1&limit=10',
-        'Sony': 'https://www.sony.com/en/SonyInfo/CorporateInfo/Careers/newgrads/',
-        'Woven by Toyota': 'https://woven-by-toyota.com/en/careers',
+        'LY Corporation (LINE)': 'https://www.lycorp.co.jp/en/recruit/newgrads/engineer/',
+        'Rakuten Group': 'https://global.rakuten.com/corp/careers/graduates/recruit_engineer/',
+        'ByteDance (TikTok) Japan': 'https://jobs.bytedance.com/en/campus/',
+        'Sony Group (Global Recruitment)': 'https://www.sony.com/en/SonyInfo/Careers/japan/',
+        'Woven by Toyota': 'https://woven.toyota/en/careers/',
 
-        # Tier 2: Early Career AI Roles (0-2 years)
-        'Rakuten International': 'https://rakuten.careers/',
-        'Mercari': 'https://careers.mercari.com/',
-        'Preferred Networks': 'https://www.preferred.jp/en/news/',
-        'Toshiba Quantum': 'https://www.global.toshiba/ww/technology/corporate/rdc.html',
+        # Tier 2: Early Career & AI Labs (Research/Specialist)
+        'Mercari Japan': 'https://careers.mercari.com/en/job-categories/engineering/',
+        'Preferred Networks (PFN)': 'https://www.preferred.jp/en/careers/',
+        'Toshiba (Global Recruitment)': 'https://www.global.toshiba/ww/recruit/corporate/english/',
     }
 
     TECH_JOB_BOARDS = {
@@ -89,9 +88,87 @@ class SmartJobScraper:
         'business level japanese', 'native japanese'
     ]
 
+    # Navigation/UI elements to ALWAYS exclude (not real jobs)
+    EXCLUDE_PATTERNS = [
+        # Navigation/UI
+        'sign up', 'sign in', 'login', 'logout', 'register', 'create account',
+        'newsletter', 'subscribe', 'unsubscribe',
+        'search jobs', 'browse jobs', 'view all', 'see all', 'show more',
+        'filter', 'sort by', 'refine search',
+
+        # Site sections
+        'about us', 'about', 'contact', 'contact us', 'help', 'faq',
+        'privacy', 'terms', 'cookie', 'legal',
+        'blog', 'news', 'press', 'media',
+        'pricing', 'plans', 'features',
+
+        # Directories/Lists
+        'companies', 'top companies', 'company directory',
+        'resources', 'guides', 'tips', 'advice',
+        'experiences', 'stories', 'testimonials',
+
+        # Social/External
+        'twitter', 'facebook', 'linkedin', 'instagram',
+        'youtube', 'github', 'discord', 'slack',
+
+        # Common false positives
+        'remote companies', 'designer experiences',
+        'developer jobs', 'japan developer' # Generic category pages
+    ]
+
     def __init__(self, db_path='../shared/jobs.db'):
         self.db_path = db_path
         self.seen_hashes = self._load_seen_hashes()
+
+    def _is_valid_job_url(self, url: str, text: str) -> bool:
+        """Validate if URL is likely a real job posting."""
+        url_lower = url.lower()
+        text_lower = text.lower()
+
+        # Exclude obvious non-job URLs
+        exclude_patterns = [
+            '/login', '/signin', '/signup', '/register',
+            '/about', '/contact', '/privacy', '/terms',
+            '/blog', '/news', '/press',
+            '/companies', '/directory',
+            '/search', '/filter', '/browse',
+            'facebook.com', 'twitter.com', 'linkedin.com/company',
+            'instagram.com', 'youtube.com',
+            '.pdf', '.jpg', '.png', '.gif',
+            'javascript:', 'mailto:', 'tel:', '#'
+        ]
+
+        for pattern in exclude_patterns:
+            if pattern in url_lower:
+                return False
+
+        # Check for excluded text patterns
+        for pattern in self.EXCLUDE_PATTERNS:
+            if pattern in text_lower:
+                return False
+
+        # Must have substantial text (not just icons/buttons)
+        if len(text.strip()) < 10:
+            return False
+
+        # Positive signals for job URLs
+        job_url_patterns = [
+            '/job/', '/position/', '/career/', '/opening/',
+            '/vacancy', '/role/', '/opportunity',
+            '/view/', '/apply/', '/detail'
+        ]
+
+        # If URL contains job patterns, likely valid
+        has_job_pattern = any(pattern in url_lower for pattern in job_url_patterns)
+
+        # If text looks like a real job title (contains job-related words)
+        job_title_words = ['engineer', 'developer', 'scientist', 'analyst',
+                          'designer', 'manager', 'specialist', 'architect',
+                          'intern', 'graduate', 'AI', 'ML', 'data']
+        has_job_words = any(word in text_lower for word in job_title_words)
+
+        # Accept if either URL pattern OR job title words present
+        return has_job_pattern or has_job_words
 
     def _load_seen_hashes(self) -> set:
         """Load previously seen job hashes to avoid duplicates."""
@@ -163,29 +240,28 @@ class SmartJobScraper:
                     link_text = link.get_text(strip=True)
                     link_url = link['href']
 
+                    # Skip empty links
+                    if not link_text or not link_url:
+                        continue
+
                     # Make absolute URL
                     if not link_url.startswith('http'):
                         from urllib.parse import urljoin
                         link_url = urljoin(url, link_url)
 
+                    # FIRST: Validate if this is even a job URL
+                    if not self._is_valid_job_url(link_url, link_text):
+                        continue
+
                     # Get surrounding context (parent element text)
                     context = link.parent.get_text(strip=True) if link.parent else ''
                     full_text = f"{link_text} {context}"
 
-                    # Two-stage matching:
-                    # Stage 1: Relaxed check for career/job pages (no MUST_HAVE required)
-                    # Stage 2: Strict check if we find promising content
-
-                    # First try strict matching (with MUST_HAVE keywords)
+                    # Apply semantic matching (strict mode only)
                     score = self.semantic_match_score(full_text, check_must_have=True)
 
-                    # If no strict match, try relaxed (for career pages that link to grad programs)
-                    if score == 0.0:
-                        # Only check if it looks like a job/career link
-                        if any(word in full_text.lower() for word in ['career', 'job', 'recruit', 'hiring', 'graduate', 'internship']):
-                            score = self.semantic_match_score(full_text, check_must_have=False)
-
-                    if score >= 0.5:  # Threshold: 50%+ match (lowered for discovery)
+                    # RAISED THRESHOLD: Must be 70%+ match
+                    if score >= 0.70:
                         # Check if already seen
                         url_hash = hashlib.sha256(link_url.encode()).hexdigest()
                         if url_hash not in self.seen_hashes:
@@ -259,7 +335,7 @@ class SmartJobScraper:
                     for job in raw_jobs:
                         score = self.semantic_match_score(job['text'], check_must_have=True)
 
-                        if score >= 0.5:  # 50%+ match threshold
+                        if score >= 0.70:  # 70%+ match threshold (strict)
                             url_hash = hashlib.sha256(job['url'].encode()).hexdigest()
                             if url_hash not in self.seen_hashes:
                                 all_matches.append({
@@ -332,7 +408,7 @@ Examples:
     parser.add_argument(
         '--include-boards',
         action='store_true',
-        help='Also scan job board aggregators (Japan Dev, TokyoDev, etc.)'
+        help='[EXPERIMENTAL] Scan job board aggregators - often returns false positives, not recommended'
     )
 
     parser.add_argument(
