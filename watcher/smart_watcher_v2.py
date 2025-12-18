@@ -17,7 +17,8 @@ import numpy as np
 import sqlite3
 from datetime import datetime
 import logging
-from typing import List, Dict
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional
 import hashlib
 from company_scrapers import CompanyScrapers
 
@@ -36,38 +37,47 @@ profile_embedding = model.encode(YOUR_PROFILE)
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class CompanyRule:
+    click_selectors: List[str] = field(default_factory=list)
+    allow_text_contains: List[str] = field(default_factory=list)
+    extra_job_url_patterns: List[str] = field(default_factory=list)
+    bypass_title_skip: bool = False
+
+
 class SmartJobScraper:
     """Semantic job matcher with targeted scraping."""
 
     PRIORITY_COMPANIES = {
-        # Tier 1: Confirmed 2026 New Grad Programs
         'LY Corporation (LINE)': 'https://www.lycorp.co.jp/en/recruit/newgrads/engineer/',
-        'Rakuten Group': 'https://global.rakuten.com/corp/careers/graduates/recruit_engineer/',
-        'ByteDance (TikTok) Japan': 'https://jobs.bytedance.com/en/campus/',
+        'Rakuten Group': 'https://global.rakuten.com/corp/careers/graduates/recruit_engineer/?l-id=%2Fgraduates%2Fheader-e',
+        'ByteDance (TikTok) Japan': 'https://joinbytedance.com/earlycareers',
         'Sony Group (Global Recruitment)': 'https://www.sony.com/en/SonyInfo/Careers/japan/',
         'Woven by Toyota': 'https://woven.toyota/en/careers/',
-
-        # Tier 2: Early Career & AI Labs (Research/Specialist)
         'Mercari Japan': 'https://careers.mercari.com/en/job-categories/engineering/',
-        'Preferred Networks (PFN)': 'https://www.preferred.jp/en/careers/',
-        'Toshiba (Global Recruitment)': 'https://www.global.toshiba/ww/recruit/corporate/english/',
+        'Preferred Networks (PFN)': 'https://www.preferred.jp/en/careers',
+        'Toshiba (Global Recruitment)': 'https://www.global.toshiba/ww/recruit/corporate/university/newgraduates.html',
     }
 
     TECH_JOB_BOARDS = {
-        # Curated for international tech professionals
         'Japan Dev': 'https://japan-dev.com/jobs/machine-learning',
         'TokyoDev': 'https://tokyodev.com/jobs/machine-learning',
-        'Daijob': 'https://daijob.com/en/jobs/search_result?job_types[]=614',  # ML/AI category
+        'Daijob': 'https://daijob.com/en/jobs/search_result?job_types[]=614',
         'LinkedIn': 'https://www.linkedin.com/jobs/search/?keywords=AI%20Engineer%20Japan%202026&location=Japan',
         'Jobs in Japan': 'https://jobsinjapan.com/jobs/search?q=AI+Engineer&category=it',
     }
 
     # Keywords that MUST appear (hard filter) - at least ONE must match
-    MUST_HAVE = [
-        '2026', 'graduate', 'new grad', 'fresh graduate', 'class of 2026',
-        'entry level', 'early career', '0-2 years', 'recent graduate',
-        'new graduate', 'junior', '卒業' # Japanese for graduate (some bilingual pages)
+    YEAR_KEYWORDS = [
+        '2026', 'class of 2026'
     ]
+
+    GRAD_KEYWORDS = [
+        'graduate', 'new grad', 'fresh graduate', 'entry level', 'early career',
+        '0-2 years', 'recent graduate', 'junior', 'new graduate', '卒業'
+    ]
+
+    MUST_HAVE = YEAR_KEYWORDS + GRAD_KEYWORDS
 
     # Positive signals for semantic matching (each adds +5% to score)
     GOOD_SIGNALS = [
@@ -116,26 +126,92 @@ class SmartJobScraper:
         'developer jobs', 'japan developer' # Generic category pages
     ]
 
-    def __init__(self, db_path='../shared/jobs.db'):
+    SKIP_TITLE_KEYWORDS = [
+        'learn more', 'guidelines for application', 'mid-career', 'kpi trends',
+        'financial statement', 'analyst coverage', 'message from', 'in the spotlight',
+        'story:', 'search job openings', 'employee conditions', 'manual check recommended'
+    ]
+
+    DEFAULT_MAX_LINKS = 30
+    JOB_BOARD_MAX_LINKS = 12
+    COMPANY_LINK_LIMITS = {
+        'Woven by Toyota': 25,
+        'Rakuten Group': 20,
+        'LY Corporation (LINE)': 15,
+    }
+
+    COMPANY_RULES: Dict[str, CompanyRule] = {
+        'Rakuten Group': CompanyRule(
+            click_selectors=[
+                'a:has-text("View open positions")',
+                'a:has-text("View open positions from here")',
+            ],
+            allow_text_contains=['view open positions', 'apply'],
+            extra_job_url_patterns=['/recruit', '/opportunities', '/joiners']
+        ),
+        'LY Corporation (LINE)': CompanyRule(
+            click_selectors=['button:has-text("Apply")'],
+            allow_text_contains=[
+                'software engineering specialist',
+                'infra engineering expert',
+                'security engineering expert',
+                'apply'
+            ],
+            extra_job_url_patterns=['/jd']
+        ),
+        'Sony Group (Global Recruitment)': CompanyRule(
+            allow_text_contains=['apply for job opening', 'view all positions', 'sony ai'],
+            extra_job_url_patterns=['myworkdayjobs.com', '/wd/', '/apply']
+        ),
+        'Mercari Japan': CompanyRule(
+            allow_text_contains=['students & new graduates', 'engineering'],
+            extra_job_url_patterns=['boards.greenhouse.io']
+        ),
+        'Woven by Toyota': CompanyRule(
+            allow_text_contains=['learn more', 'apply'],
+            extra_job_url_patterns=['/careers/', '/jobs/'],
+            bypass_title_skip=True
+        ),
+    }
+
+    def __init__(self, db_path='../shared/jobs.db', match_threshold: float = 0.7):
         self.db_path = db_path
+        self.match_threshold = match_threshold
+        self._ensure_database()
         self.seen_hashes = self._load_seen_hashes()
 
-    def _is_valid_job_url(self, url: str, text: str) -> bool:
-        """Validate if URL is likely a real job posting."""
+    def _get_company_rule(self, company: Optional[str]) -> Optional[CompanyRule]:
+        if not company:
+            return None
+        return self.COMPANY_RULES.get(company)
+
+    def _is_valid_job_url(self, url: str, text: str, company: Optional[str] = None) -> bool:
+        """Validate if URL is likely a real job posting (STRICT MODE)."""
         url_lower = url.lower()
         text_lower = text.lower()
+
+        if self._should_skip_title(text, company):
+            return False
+
+        rule = self._get_company_rule(company)
+        allow_text_override = False
+        if rule and rule.allow_text_contains:
+            allow_text_override = any(token in text_lower for token in rule.allow_text_contains)
 
         # Exclude obvious non-job URLs
         exclude_patterns = [
             '/login', '/signin', '/signup', '/register',
             '/about', '/contact', '/privacy', '/terms',
-            '/blog', '/news', '/press',
+            '/blog', '/news', '/press', '/media', '/article',
+            '/people/', '/employee/', '/staff/', '/team/',  # Employee profiles
             '/companies', '/directory',
             '/search', '/filter', '/browse',
             'facebook.com', 'twitter.com', 'linkedin.com/company',
             'instagram.com', 'youtube.com',
             '.pdf', '.jpg', '.png', '.gif',
-            'javascript:', 'mailto:', 'tel:', '#'
+            'javascript:', 'mailto:', 'tel:', '#',
+            '/financial', '/investor', '/ir/', '/coverage',  # Financial pages
+            '/guidelines', '/application', '/apply-guide'  # Application guides (not jobs)
         ]
 
         for pattern in exclude_patterns:
@@ -147,28 +223,116 @@ class SmartJobScraper:
             if pattern in text_lower:
                 return False
 
-        # Must have substantial text (not just icons/buttons)
-        if len(text.strip()) < 10:
+        # Reject generic button text (not specific job titles)
+        generic_buttons = [
+            'learn more', 'read more', 'view', 'see all', 'apply now', 'join us',
+            'explore', 'discover', 'find out', 'click here', 'details',
+            'view job', 'view jobs', 'see jobs', 'browse', 'search'
+        ]
+        if text_lower.strip() in generic_buttons:
             return False
 
-        # Positive signals for job URLs
-        job_url_patterns = [
-            '/job/', '/position/', '/career/', '/opening/',
-            '/vacancy', '/role/', '/opportunity',
-            '/view/', '/apply/', '/detail'
+        # Reject category/directory pages (not specific job listings)
+        category_pages = [
+            'engineering', 'engineers', 'developer', 'developers',
+            'new graduates', 'students', 'internship', 'internships',
+            'job categories', 'all jobs', 'open positions',
+            'career opportunities', 'join our team', 'work with us',
+            'manager jobs', 'senior jobs', 'junior jobs'
         ]
+        if text_lower.strip() in category_pages:
+            return False
 
-        # If URL contains job patterns, likely valid
+        # STRICT: Must have strong job URL pattern
+        job_url_patterns = [
+            '/job/', '/jobs/', '/position/', '/positions/',
+            '/career/', '/careers/', '/opening/', '/vacancy',
+            '/role/', '/opportunity', '/requisition'
+        ]
+        if rule and rule.extra_job_url_patterns:
+            job_url_patterns.extend(rule.extra_job_url_patterns)
         has_job_pattern = any(pattern in url_lower for pattern in job_url_patterns)
 
         # If text looks like a real job title (contains job-related words)
         job_title_words = ['engineer', 'developer', 'scientist', 'analyst',
                           'designer', 'manager', 'specialist', 'architect',
-                          'intern', 'graduate', 'AI', 'ML', 'data']
-        has_job_words = any(word in text_lower for word in job_title_words)
+                          'intern', 'graduate', 'AI', 'ML', 'data', 'software',
+                          'backend', 'frontend', 'full stack', 'devops']
+        has_job_words = allow_text_override or any(word.lower() in text_lower for word in job_title_words)
 
-        # Accept if either URL pattern OR job title words present
-        return has_job_pattern or has_job_words
+        # STRICT: Accept ONLY if both URL pattern AND job title words present
+        return has_job_pattern and has_job_words
+
+    def _ensure_database(self) -> None:
+        """Ensure the SQLite schema exists before inserting."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    url TEXT NOT NULL UNIQUE,
+                    keywords_matched TEXT,
+                    date_found TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    applied_status TEXT DEFAULT 'Pending',
+                    notes TEXT,
+                    resume_generated BOOLEAN DEFAULT 0
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS scraper_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    company TEXT,
+                    status TEXT,
+                    jobs_found INTEGER DEFAULT 0,
+                    error_message TEXT
+                )
+            ''')
+            conn.commit()
+        except Exception as exc:
+            logger.error(f"Failed to initialize database: {exc}")
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _should_skip_title(self, text: str, company: Optional[str] = None) -> bool:
+        """Return True if anchor text is clearly not a job title."""
+        normalized = text.strip().lower()
+
+        rule = self._get_company_rule(company)
+        if rule:
+            if rule.bypass_title_skip:
+                return False
+            if rule.allow_text_contains and any(token in normalized for token in rule.allow_text_contains):
+                return False
+
+        if len(normalized) < 15:
+            return True
+
+        return any(keyword in normalized for keyword in self.SKIP_TITLE_KEYWORDS)
+
+    def _max_links_for(self, company: str, fallback: Optional[int] = None) -> int:
+        """Return a sane per-company cap on how many links we inspect."""
+        base_limit = fallback if fallback is not None else self.DEFAULT_MAX_LINKS
+        return self.COMPANY_LINK_LIMITS.get(company, base_limit)
+
+    async def _apply_company_actions(self, page, company: str) -> None:
+        """Fire company-specific clicks (CTA buttons, tabs, etc.)."""
+        rule = self._get_company_rule(company)
+        if not rule or not rule.click_selectors:
+            return
+
+        for selector in rule.click_selectors:
+            try:
+                await page.click(selector, timeout=2500)
+                await page.wait_for_timeout(1000)
+            except Exception:
+                continue
 
     def _load_seen_hashes(self) -> set:
         """Load previously seen job hashes to avoid duplicates."""
@@ -182,21 +346,26 @@ class SmartJobScraper:
         except:
             return set()
 
-    def semantic_match_score(self, job_text: str, check_must_have: bool = True) -> float:
+    def semantic_match_score(
+        self,
+        job_text: str,
+        required_keywords: Optional[List[str]] = None,
+    ) -> float:
         """
         Calculate semantic similarity between job and your profile.
         Returns: 0.0 to 1.0 (higher = better match)
 
         Args:
             job_text: The job description or link text
-            check_must_have: If False, skips the MUST_HAVE keyword check (useful for career pages)
+            required_keywords: Override the default MUST_HAVE keywords. Pass an empty list to skip.
         """
         # Quick keyword filter first (saves compute)
         job_lower = job_text.lower()
 
-        # Check for MUST_HAVE keywords (can be disabled for career page scanning)
-        if check_must_have:
-            if not any(keyword in job_lower for keyword in self.MUST_HAVE):
+        keywords = self.MUST_HAVE if required_keywords is None else required_keywords
+
+        if keywords:
+            if not any(keyword in job_lower for keyword in keywords):
                 return 0.0
 
         # Deal breakers (always check)
@@ -214,71 +383,191 @@ class SmartJobScraper:
 
         return min(1.0, similarity + boost)
 
-    async def scrape_company_page(self, company: str, url: str) -> List[Dict]:
+    async def _get_full_page_text(self, page, url: str) -> str:
         """
-        Scrape a company career page using Playwright (handles dynamic content).
-        Returns list of matched jobs.
+        Navigates to a URL and extracts the full, clean text content.
+        This is our 'Level 2' scraper.
         """
-        matches = []
+        try:
+            await page.goto(url, wait_until='networkidle', timeout=20000)
+            await page.wait_for_timeout(1500)  # Extra wait for dynamic content
+            html = await page.content()
+            soup = BeautifulSoup(html, 'html.parser')
 
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
+            # Attempt to find the main content area for cleaner text
+            main_content = soup.find('main') or soup.find('article') or soup.find('body')
+            return main_content.get_text(separator=' ', strip=True)
+        except Exception as e:
+            logger.warning(f"  -> Failed to get details from {url}: {str(e)}")
+            return ""
+
+    async def scrape_company_page(
+        self,
+        company: str,
+        url: str,
+        *,
+        browser=None,
+        max_links: Optional[int] = None,
+        required_keywords: Optional[List[str]] = None,
+    ) -> List[Dict]:
+        """Scrape a career page using a reusable Playwright browser."""
+
+        logger.info(f"[*] Scraping {company} (L1)...")
+        link_cap = self._max_links_for(company, fallback=max_links)
+
+        async def _run(page) -> List[Dict]:
+            matches: List[Dict] = []
 
             try:
-                await page.goto(url, wait_until='networkidle', timeout=30000)
-
-                # Wait for content to load (adjust selector per site)
+                await page.goto(url, wait_until='domcontentloaded', timeout=30000)
                 await page.wait_for_timeout(2000)
+                await self._apply_company_actions(page, company)
 
-                # Get page HTML
-                html = await page.content()
-                soup = BeautifulSoup(html, 'html.parser')
+                # Attempt to reveal lazy-loaded cards
+                for i in range(5):
+                    try:
+                        await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                        await page.wait_for_timeout(1200)
+                    except Exception:
+                        break
 
-                # Find all links
+                    if i < 3:
+                        load_more_selectors = [
+                            'button:has-text("Load More")',
+                            'button:has-text("Show More")',
+                            'a:has-text("Load More")',
+                            'a:has-text("Show More")',
+                            '[data-test="load-more"]'
+                        ]
+                        for selector in load_more_selectors:
+                            try:
+                                await page.click(selector, timeout=1500)
+                                await page.wait_for_timeout(800)
+                                break
+                            except Exception:
+                                continue
+
+                soup = BeautifulSoup(await page.content(), 'html.parser')
+                potential_links: List[Dict[str, str]] = []
+                seen_urls = set()
+
+                from urllib.parse import urljoin
+
                 for link in soup.find_all('a', href=True):
-                    link_text = link.get_text(strip=True)
+                    link_text = link.get_text(strip=True) or link.get('aria-label', '').strip() or link.get('title', '').strip()
                     link_url = link['href']
 
-                    # Skip empty links
                     if not link_text or not link_url:
                         continue
 
-                    # Make absolute URL
-                    if not link_url.startswith('http'):
-                        from urllib.parse import urljoin
-                        link_url = urljoin(url, link_url)
+                    absolute_url = urljoin(url, link_url)
 
-                    # FIRST: Validate if this is even a job URL
-                    if not self._is_valid_job_url(link_url, link_text):
+                    if absolute_url in seen_urls:
                         continue
 
-                    # Get surrounding context (parent element text)
-                    context = link.parent.get_text(strip=True) if link.parent else ''
-                    full_text = f"{link_text} {context}"
+                    if self._is_valid_job_url(absolute_url, link_text, company):
+                        potential_links.append({'url': absolute_url, 'title': link_text})
+                        seen_urls.add(absolute_url)
 
-                    # Apply semantic matching (strict mode only)
-                    score = self.semantic_match_score(full_text, check_must_have=True)
+                if not potential_links:
+                    logger.warning("  -> Found 0 job links. Site may be gated or fully dynamic.")
+                    logger.warning(f"  -> Manual check recommended: {url}")
+                    return matches
 
-                    # RAISED THRESHOLD: Must be 70%+ match
-                    if score >= 0.70:
-                        # Check if already seen
-                        url_hash = hashlib.sha256(link_url.encode()).hexdigest()
-                        if url_hash not in self.seen_hashes:
-                            matches.append({
-                                'company': company,
-                                'title': link_text,
-                                'url': link_url,
-                                'match_score': score,
-                                'snippet': full_text[:200]
-                            })
-                            self.seen_hashes.add(url_hash)
-                            logger.info(f"[MATCH] Found: {link_text} (score: {score:.2f})")
+                if len(potential_links) > link_cap:
+                    logger.warning(f"  -> Limiting to {link_cap} links (found {len(potential_links)})")
+                    potential_links = potential_links[:link_cap]
 
-            except Exception as e:
-                logger.error(f"Error scraping {company}: {e}")
+                for i, link_info in enumerate(potential_links):
+                    job_url = link_info['url']
+                    job_title = link_info['title']
+
+                    url_hash = hashlib.sha256(job_url.encode()).hexdigest()
+                    if url_hash in self.seen_hashes:
+                        continue
+
+                    logger.info(f"  -> (L2) Analyzing [{i+1}/{len(potential_links)}]: {job_title[:60]}...")
+                    full_job_text = await self._get_full_page_text(page, job_url)
+
+                    if not full_job_text or len(full_job_text) < 200:
+                        logger.debug("  -> Skipping (insufficient content)")
+                        continue
+
+                    score = self.semantic_match_score(full_job_text, required_keywords)
+
+                    if score >= self.match_threshold:
+                        matches.append({
+                            'company': company,
+                            'title': job_title,
+                            'url': job_url,
+                            'match_score': score,
+                            'snippet': full_job_text[:250].strip()
+                        })
+                        self.seen_hashes.add(url_hash)
+                        logger.info(f"  [MATCH] {company}: {job_title} (Score: {score:.2f})")
+
+            except Exception as exc:
+                logger.error(f"Error scraping {company}: {exc}")
+
+            return matches
+
+        async def _with_browser(active_browser) -> List[Dict]:
+            page = await active_browser.new_page()
+            try:
+                return await _run(page)
             finally:
-                await browser.close()
+                await page.close()
+
+        if browser is not None:
+            return await _with_browser(browser)
+
+        async with async_playwright() as playwright_runtime:
+            temp_browser = await playwright_runtime.chromium.launch(headless=True)
+            try:
+                return await _with_browser(temp_browser)
+            finally:
+                await temp_browser.close()
+
+    async def run_company_scrapers(self, browser) -> List[Dict]:
+        """Use purpose-built scrapers for sites that break generic parsing."""
+
+        logger.info("\n[Phase 0] Running company-specific scrapers...")
+        matches: List[Dict] = []
+
+        try:
+            job_payloads = await CompanyScrapers.scrape_all_companies(browser)
+        except Exception as exc:
+            logger.error(f"Company-specific scrapers failed: {exc}")
+            return matches
+
+        for payload in job_payloads:
+            job_url = payload.get('url')
+            job_title = payload.get('title', '').strip()
+            job_text = payload.get('text') or job_title
+
+            if not job_url or not job_title or not job_text:
+                continue
+
+            url_hash = hashlib.sha256(job_url.encode()).hexdigest()
+            if url_hash in self.seen_hashes:
+                continue
+
+            score = self.semantic_match_score(job_text, required_keywords=self.GRAD_KEYWORDS)
+            if score < self.match_threshold:
+                continue
+
+            matches.append({
+                'company': payload.get('company', 'Unknown'),
+                'title': job_title,
+                'url': job_url,
+                'match_score': score,
+                'snippet': job_text[:250].strip()
+            })
+            self.seen_hashes.add(url_hash)
+            logger.info(f"  [MATCH] {payload.get('company', 'Unknown')}: {job_title} (Score: {score:.2f})")
+
+        if not matches:
+            logger.info("  -> Company-specific scrapers did not find any high-confidence matches.")
 
         return matches
 
@@ -318,58 +607,38 @@ class SmartJobScraper:
 
         all_matches = []
 
-        # Phase 1: Use company-specific scrapers (hits actual job pages)
-        if use_company_scrapers:
-            logger.info(f"\n[Phase 1] Using company-specific scrapers for accurate job discovery...")
+        async with async_playwright() as playwright_runtime:
+            browser = await playwright_runtime.chromium.launch(headless=True)
+            try:
+                if use_company_scrapers:
+                    matches = await self.run_company_scrapers(browser)
+                    all_matches.extend(matches)
 
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
+                logger.info(f"\n[Phase 1] Starting 2-Level Scan for {len(self.PRIORITY_COMPANIES)} priority companies...")
+                for company, url in self.PRIORITY_COMPANIES.items():
+                    matches = await self.scrape_company_page(
+                        company,
+                        url,
+                        browser=browser,
+                    )
+                    all_matches.extend(matches)
+                    await asyncio.sleep(2)
 
-                try:
-                    # Get all jobs from company-specific scrapers
-                    raw_jobs = await CompanyScrapers.scrape_all_companies(browser)
-
-                    logger.info(f"  Found {len(raw_jobs)} total job postings")
-
-                    # Now apply semantic matching to filter
-                    for job in raw_jobs:
-                        score = self.semantic_match_score(job['text'], check_must_have=True)
-
-                        if score >= 0.70:  # 70%+ match threshold (strict)
-                            url_hash = hashlib.sha256(job['url'].encode()).hexdigest()
-                            if url_hash not in self.seen_hashes:
-                                all_matches.append({
-                                    'company': job['company'],
-                                    'title': job['title'],
-                                    'url': job['url'],
-                                    'match_score': score,
-                                    'snippet': job['text'][:200]
-                                })
-                                self.seen_hashes.add(url_hash)
-                                logger.info(f"[MATCH] {job['company']}: {job['title']} (score: {score:.2f})")
-
-                except Exception as e:
-                    logger.error(f"Error in company scrapers: {e}")
-                finally:
-                    await browser.close()
-
-        else:
-            # Fallback: Generic scraping (less effective)
-            logger.info(f"\n[Phase 1] Scanning {len(self.PRIORITY_COMPANIES)} company career pages...")
-            for company, url in self.PRIORITY_COMPANIES.items():
-                logger.info(f"  -> {company}...")
-                matches = await self.scrape_company_page(company, url)
-                all_matches.extend(matches)
-                await asyncio.sleep(3)  # Be polite
-
-        # Optionally scan job boards
-        if scan_job_boards:
-            logger.info(f"\n[Phase 2] Scanning {len(self.TECH_JOB_BOARDS)} job board aggregators...")
-            for board, url in self.TECH_JOB_BOARDS.items():
-                logger.info(f"  -> {board}...")
-                matches = await self.scrape_company_page(board, url)
-                all_matches.extend(matches)
-                await asyncio.sleep(3)
+                if scan_job_boards:
+                    logger.info(f"\n[Phase 2] Scanning {len(self.TECH_JOB_BOARDS)} job board aggregators...")
+                    for board, url in self.TECH_JOB_BOARDS.items():
+                        logger.info(f"  -> {board}...")
+                        matches = await self.scrape_company_page(
+                            board,
+                            url,
+                            browser=browser,
+                            max_links=self.JOB_BOARD_MAX_LINKS,
+                            required_keywords=self.GRAD_KEYWORDS,
+                        )
+                        all_matches.extend(matches)
+                        await asyncio.sleep(3)
+            finally:
+                await browser.close()
 
         # Save to database
         logger.info(f"\n[Saving] Writing results to database...")
@@ -452,10 +721,7 @@ Examples:
     logger.info(f"Threshold: {args.threshold:.2f} | Boards: {args.include_boards}")
     logger.info("=" * 60)
 
-    scraper = SmartJobScraper()
-
-    # You can override the threshold if needed
-    # scraper.MATCH_THRESHOLD = args.threshold
+    scraper = SmartJobScraper(match_threshold=args.threshold)
 
     new_jobs = await scraper.run_smart_scan(scan_job_boards=args.include_boards)
 
