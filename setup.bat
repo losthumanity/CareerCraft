@@ -40,6 +40,8 @@ if not exist logs mkdir logs
 if not exist data mkdir data
 if not exist output mkdir output
 if not exist templates mkdir templates
+if not exist tailored_resumes mkdir tailored_resumes
+if not exist tailor mkdir tailor
 
 REM Create .env file from example
 echo.
@@ -57,9 +59,15 @@ echo Setup Complete!
 echo ========================================
 echo.
 echo Next Steps:
-echo 1. Edit .env file with your OpenAI API key and Discord webhook
-echo 2. Run: venv\Scripts\activate
-echo 3. Test watcher: python watcher.py --test
-echo 4. Launch dashboard: streamlit run dashboard.py
+echo 1. Edit .env file with your API keys:
+echo    - DISCORD_WEBHOOK_URL (for notifications)
+echo    - GEMINI_API_KEY (for resume tailoring)
+echo 2. Edit tailor/tailor_config.yaml with your resume data
+echo 3. Run: venv\Scripts\activate
+echo 4. Test watcher: python watcher/smart_watcher_v2.py
+echo 5. Test tailor: python tailor/test_tailor.py
+echo 6. Launch dashboard: streamlit run dashboard/dashboard.py
+echo.
+echo Phase 2 (Resume Tailor) is now ready!
 echo.
 pause

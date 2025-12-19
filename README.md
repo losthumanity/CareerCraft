@@ -11,19 +11,31 @@ Jobify/
 │   ├── watcher.py        # Core scraping engine
 │   └── README.md
 │
-├── dashboard/            # Service 2: Mission Control UI
+├── tailor/               # Service 2: Resume Tailor (AI Brain)
+│   ├── resume_tailor.py  # Gemini-powered tailoring engine
+│   ├── tailor_cli.py     # Interactive CLI interface
+│   ├── integration.py    # Watcher integration
+│   ├── tailor_config.yaml # Your resume data
+│   └── README.md
+│
+├── dashboard/            # Service 3: Mission Control UI
 │   ├── dashboard.py      # Streamlit interface
 │   └── README.md
 │
-├── shared/               # Service 3: Common Resources
+├── shared/               # Service 4: Common Resources
 │   ├── config.yaml       # Companies & keywords
 │   ├── jobs.db           # SQLite database
 │   └── README.md
 │
+├── templates/            # LaTeX templates
+│   └── resume_template.tex
+│
+├── tailored_resumes/     # AI-generated resumes (auto-created)
 ├── logs/                 # Application logs
 ├── venv/                 # Python environment
 │
 ├── run_watcher.bat       # Launch watcher
+├── run_tailor.bat        # Launch resume tailor
 ├── run_dashboard.bat     # Launch dashboard
 ├── setup.bat             # Initial setup
 │
@@ -43,11 +55,25 @@ setup.bat
 Edit `.env`:
 ```env
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_URL
+GEMINI_API_KEY=your-gemini-api-key-here
+```
+
+Edit `tailor/tailor_config.yaml` with your resume data:
+```yaml
+personal_info:
+  name: "Your Full Name"
+  email: "your.email@example.com"
+
+original_summary: "Your professional summary..."
+original_experience:
+  - "Your experience bullet 1"
+  - "Your experience bullet 2"
 ```
 
 ### 3. Run Services
 ```cmd
 run_watcher.bat      # Start monitoring
+run_tailor.bat       # Generate tailored resumes
 run_dashboard.bat    # Open UI at localhost:8501
 ```
 
@@ -61,7 +87,15 @@ run_dashboard.bat    # Open UI at localhost:8501
 
 **Location:** `watcher/watcher.py`
 
-### 2️⃣ Dashboard (Mission Control)
+### 2️⃣ Tailor (AI Resume Brain) 🧠 **NEW**
+- Uses Gemini 2.5 Pro to tailor resumes
+- Analyzes job descriptions
+- Reframes experience to match JD requirements
+- Generates LaTeX resumes
+
+**Location:** `tailor/resume_tailor.py`
+
+### 3️⃣ Dashboard (Mission Control)
 - Streamlit web interface
 - Real-time job tracking
 - Visual analytics
@@ -69,10 +103,10 @@ run_dashboard.bat    # Open UI at localhost:8501
 
 **Location:** `dashboard/dashboard.py`
 
-### 3️⃣ Shared Resources
+### 4️⃣ Shared Resources
 - **config.yaml** - Target companies & keywords
 - **jobs.db** - Centralized SQLite database
-- Shared by both services
+- Shared by all services
 
 **Location:** `shared/`
 
@@ -90,11 +124,33 @@ companies:
 
 ## 🔧 Features
 
-- **Automated Monitoring:** 24/7 job discovery
-- **Smart Notifications:** Discord alerts for new jobs
-- **Visual Dashboard:** Track applications in real-time
-- **Database Tracking:** No duplicate notifications
-- **Microservice Design:** Independent, scalable services
+✅ **Phase 2 Complete:** 🎉
+- **Resume Tailor operational**
+- **Gemini 2.5 Pro integration working**
+- **Interactive CLI ready**
+- **Watcher integration complete**
+
+⏳ **Future Phases:**
+- P**Watcher** finds new jobs automatically
+2. **Dashboard** shows new opportunities
+3. **Tailor** generates custom resume for each job
+4. Review and apply with confidence!
+
+### Resume Tailoring Workflow 🧠
+```cmd
+# Interactive mode (easiest)
+run_tailor.bat
+
+# Or from discovered jobs
+python tailor/integration.py
+```
+
+The AI will:
+- Analyze the job description
+- Rewrite your summary to match the role
+- Reframe your experience bullets to highlight relevant skills
+- Reorder your skills to prioritize what matters
+- Generate a LaTeX resume ready to compileependent, scalable services
 
 ## 📊 Current Status
 
@@ -116,7 +172,8 @@ companies:
 3. Update status: Pending → Applied → Interview
 4. Track progress in analytics
 
-### Automation
+### tailor/README.md** - Resume tailoring guide 🧠
+- **Automation
 Schedule watcher with Windows Task Scheduler:
 - Run `run_watcher.bat` twice daily (8 AM, 8 PM)
 
@@ -131,11 +188,12 @@ Schedule watcher with Windows Task Scheduler:
 
 | Issue | Solution |
 |-------|----------|
-| Watcher can't find config | Check `shared/config.yaml` exists |
-| Dashboard shows no data | Run watcher first to populate database |
-| Path errors | Services use relative paths (`../shared/`) |
+**Architecture:** Microservices
+**Status:** ✅ Production Ready
+**AI:** Gemini 2.5 Pro
+**Current Phase:** Phase 2 Complete - Resume Tailoring Live! 🎉
 
-## 📚 Documentation
+🎯 **"Smart Watching + Smart Tailoring = Dream Job
 
 - **watcher/README.md** - Monitoring service details
 - **dashboard/README.md** - UI service details

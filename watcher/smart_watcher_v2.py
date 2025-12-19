@@ -57,6 +57,8 @@ class SmartJobScraper:
         'Mercari Japan': 'https://careers.mercari.com/en/job-categories/engineering/',
         'Preferred Networks (PFN)': 'https://www.preferred.jp/en/careers',
         'Toshiba (Global Recruitment)': 'https://www.global.toshiba/ww/recruit/corporate/university/newgraduates.html',
+        'Toshiba (Global Recruitment) 2': 'https://www.global.toshiba/ww/recruit/corporate/university/newgraduates.html',
+
     }
 
     TECH_JOB_BOARDS = {
@@ -662,15 +664,15 @@ async def main():
         description='🎯 Smart Job Watcher v2 - Semantic matching for 2026 AI/ML grad roles',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  # Scan only priority company career pages (recommended)
-  python smart_watcher_v2.py
+    Examples:
+    # Scan only priority company career pages (recommended)
+    python smart_watcher_v2.py
 
-  # Scan companies + job board aggregators (slower but comprehensive)
-  python smart_watcher_v2.py --include-boards
+    # Scan companies + job board aggregators (slower but comprehensive)
+    python smart_watcher_v2.py --include-boards
 
-  # Change semantic matching threshold (default: 0.7)
-  python smart_watcher_v2.py --threshold 0.65
+    # Change semantic matching threshold (default: 0.7)
+    python smart_watcher_v2.py --threshold 0.65
         """
     )
 

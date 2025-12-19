@@ -1,0 +1,62 @@
+# Resume Tailor Configuration - Pranav Patil
+# Your actual resume information for AI tailoring
+
+personal_info:
+  name: "Pranav Patil"
+  email: "pranavpatil7896@gmail.com"
+  phone: "+91 7249562289"
+  github: "losthumanity"
+  linkedin: "pranavpatil6"
+  location: "Pune, Maharashtra"
+
+original_summary: |-
+  Software Engineer specializing in building scalable, cloud-native applications with expertise in Python, Java, and
+  AWS. Experienced in developing robust backend systems, REST APIs, and CI/CD pipelines, with a strong
+  foundation in data structures, algorithms, and AI/ML concepts.
+
+# Your projects (will be customized by AI based on JD)
+original_projects:
+  - title: "AI-Powered Medical Document Analysis Platform"
+    url: "https://github.com/losthumanity/healthWave"
+    tech: "Python, LangChain, Fast-API"
+    bullets:
+      - "Engineered an end-to-end RAG pipeline that processed a corpus of 1000+ medical documents (PDF/JSON), enabling users to query complex reports using natural language."
+      - "Fine-tuned a T5 model on a specialized medical jargon dataset, improving document readability by 35% for non-specialists, as measured by readability scores (e.g., Flesch-Kincaid)."
+      - "Orchestrated the workflow with LangChain and FastAPI and deployed a FAISS vector database for semantic search, achieving a 90% latency reduction and boosting response relevance by 40% over traditional methods."
+
+  - title: "Video Source Identification and Verification"
+    url: "https://github.com/losthumanity/CameraSourceIdentification"
+    tech: "Python, Pytorch, CNN, ResNet50"
+    bullets:
+      - "Collaborated with a team of 5 engineers to define acceptance criteria and maintain a prioritized backlog; authored epics and detailed user stories to guide development of an end-to-end verification prototype."
+      - "Executed a comparative analysis of pretrained CNN approaches (precision vs. latency trade-offs), informing model selection and risk considerations for content authenticity."
+      - "Achieved top 5% performance on an IEEE benchmark with 95% precision on manipulated content detection; summarized findings in stakeholder-readable reports and presentations."
+
+  - title: "Data Ingestion Pipeline for Market Sentiment Analysis"
+    url: "https://github.com/losthumanity/SentimentFinance"
+    tech: "AWS, Python, MySQL, Docker"
+    bullets:
+      - "Architected a real-time, event-driven data pipeline on AWS to process and store financial news from 20+ sources, designing a normalized MySQL schema to ensure data integrity and query efficiency."
+      - "Implemented optimized SQL queries with complex JOINs and aggregations to power a real-time trend analysis dashboard, reducing data retrieval latency by 60% compared to naive queries."
+      - "Automated the entire deployment process with a Dockerized CI/CD pipeline, leveraging AWS Lambda for serverless compute which cut operational costs by 70% and slashed manual deployment time by 90%."
+
+  - title: "E-Commerce Analytics Platform"
+    url: "https://github.com/losthumanity/ECommercePlatformAnalysis"
+    tech: "Java, Spring Boot, Microservices, REST API, MySQL"
+    bullets:
+      - "Architected and developed a microservices-based backend using Java and Spring Boot to process and analyze sales, inventory, and user data from an e-commerce platform."
+      - "Designed and implemented RESTful APIs for data ingestion and retrieval, powering a React dashboard that delivers real-time analytics and insights."
+      - "Managed data persistence and complex queries with MySQL, ensuring integrity through robust schema design and applying the Singleton pattern for efficient database connections."
+
+# Your technical skills (categorized)
+original_skills:
+  languages: "Python, Java, SQL, Bash"
+  ai_ml: "LangChain, LlamaIndex, PyTorch, Pandas, NumPy"
+  backend_cloud: "Spring Boot, FastAPI, AWS Lambda, Docker, Microservices"
+  core_concepts: "Data Structures, Algorithms, Object-Oriented Programming (OOP)"
+  databases: "MySQL, MongoDB, Vector Databases (ChromaDB, FAISS)"
+  dev_tools: "Git, GitHub, Postman, Jupyter, CI/CD"
+
+# API Configuration
+api:
+  gemini_model: "gemini-2.0-flash-exp"  # Using Gemini 2.0 Flash (fast and efficient)

@@ -12,6 +12,7 @@ torch==2.1.0  # Required by sentence-transformers
 # LLM Integration
 openai==1.6.1
 anthropic==0.8.1
+google-genai>=0.2.0
 
 # PDF Generation
 Jinja2==3.1.2
