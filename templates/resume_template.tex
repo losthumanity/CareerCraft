@@ -90,7 +90,7 @@
 
 %-----------PROFESSIONAL SUMMARY-----------
 \section{PROFESSIONAL SUMMARY}
-\normalsize{ {{- summary -}} }
+\normalsize{{{SUMMARY_PLACEHOLDER}}}
 \vspace{-8pt}
 
 %-----------EDUCATION-----------
@@ -105,16 +105,7 @@
 \section{PROJECTS}
     \vspace{-5pt}
     \resumeSubHeadingListStart
-{% for project in projects %}
-     \resumeProjectHeading
-          {\href{ {{- project.url -}} }{\textbf{\large{\underline{ {{- project.title -}} }}} \faExternalLink} $|$ \large{\underline{ {{- project.tech -}} }}}{}\\
-          \resumeItemListStart
-{% for bullet in project.bullets %}
-            \resumeItem{\normalsize{ {{- bullet -}} }}
-{% endfor %}
-          \resumeItemListEnd
-          \vspace{-13pt}
-{% endfor %}
+{{PROJECTS_PLACEHOLDER}}
     \resumeSubHeadingListEnd
 \vspace{-5pt}
 
@@ -122,13 +113,7 @@
 \section{TECHNICAL SKILLS}
  \begin{itemize}[leftmargin=0.15in, label={}]
     \small{\item{
-     \textbf{\normalsize{Languages:}}{  \normalsize{ {{- skills.languages -}} }} \\
-     \textbf{\normalsize{AI/ML Frameworks:}}{  \normalsize{ {{- skills.ai_ml -}} }} \\
-     \textbf{\normalsize{Backend/Cloud: }}{  \normalsize{ {{- skills.backend_cloud -}} }} \\
-     \textbf{\normalsize{Core Concepts:}}{  \normalsize{ {{- skills.core_concepts -}} }} \\
-     \textbf{\normalsize{Databases:}}{  \normalsize{ {{- skills.databases -}} }} \\
-     \textbf{\normalsize{Developer Tools:}}
-    {\normalsize{ {{- skills.dev_tools -}} }} \\
+{{SKILLS_PLACEHOLDER}}
 
     }}
  \end{itemize}

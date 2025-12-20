@@ -11,7 +11,6 @@ from typing import Dict, List, Optional
 import yaml
 from google import genai
 from google.genai import types
-from jinja2 import Template
 from datetime import datetime
 import time
 
@@ -46,27 +45,27 @@ class ResumeTailor:
 
         # Configure Gemini client with new API
         self.client = genai.Client(api_key=api_key)
-        self.model_name = 'gemini-2.5-flash'  # Stable model with better free tier limits
-
-        # Load resume template
-        self.template_path = self.project_root / "templates" / "resume_template.tex"
-        self.load_template()
+        self.model_name = 'gemini-2.5-flash'  # Use the experimental model
 
         # Load configuration
         self.config_path = Path(__file__).parent / "tailor_config.yaml"
         self.load_config()
 
+        # Load base template structure
+        self.template_path = self.project_root / "templates" / "resume_template.tex"
+        self.load_base_template()
+
         # Output directory
         self.output_dir = self.project_root / "tailored_resumes"
         self.output_dir.mkdir(exist_ok=True)
 
-    def load_template(self):
-        """Load the LaTeX resume template"""
+    def load_base_template(self):
+        """Load the base LaTeX template structure"""
         if not self.template_path.exists():
             raise FileNotFoundError(f"Resume template not found at {self.template_path}")
 
         with open(self.template_path, 'r', encoding='utf-8') as f:
-            self.template_content = f.read()
+            self.base_template = f.read()
 
     def load_config(self):
         """Load the tailor configuration"""
@@ -123,7 +122,7 @@ Provide a concise summary focused on what matters for resume tailoring.
                        job_description: str,
                        company_name: str,
                        role_title: str) -> str:
-        """Tailor the professional summary for the specific job"""
+        """Tailor the professional summary for the specific job - returns LaTeX code"""
         prompt = f"""
 You are a professional resume writer. Rewrite this professional summary to align with the job description.
 
@@ -142,9 +141,8 @@ Requirements:
 - Highlight relevant skills and experiences
 - Do NOT fabricate experience or skills
 - Maintain professional tone
-- Focus on value proposition for THIS specific role
 
-Return ONLY the rewritten summary, no explanations.
+Return ONLY the text content (no LaTeX commands, just the paragraph text).
 """
 
         return self._call_api_with_retry(prompt).strip()
@@ -153,88 +151,57 @@ Return ONLY the rewritten summary, no explanations.
                        original_projects: List[Dict],
                        job_description: str,
                        company_name: str,
-                       role_title: str) -> List[Dict]:
-        """Tailor projects to highlight most relevant ones and reframe bullets"""
+                       role_title: str) -> str:
+        """Tailor projects - returns complete LaTeX code for projects section"""
 
-        # First, select the most relevant projects (max 3-4)
         projects_summary = "\n\n".join([
-            f"Project: {p['title']}\nTech: {p['tech']}\n" +
+            f"Project: {p['title']}\nTech: {p['tech']}\nURL: {p.get('url', '')}\n" +
             "\n".join([f"- {b}" for b in p['bullets']])
             for p in original_projects
         ])
 
         prompt = f"""
-You are a professional resume writer. Given these projects and a target job, select the 2-3 most relevant projects and reframe their bullet points.
+You are a LaTeX resume expert. Select 2-3 most relevant projects and generate complete LaTeX code.
 
 Original Projects:
 {projects_summary}
 
 Target Company: {company_name}
 Target Role: {role_title}
+Job Description: {job_description}
 
-Job Description:
-{job_description}
+Generate LaTeX code using this EXACT structure for each project:
+     \\resumeProjectHeading
+          {{\\href{{PROJECT_URL}}{{\\textbf{{\\large{{\\underline{{PROJECT_TITLE}}}}}} \\faExternalLink}} $|$ \\large{{\\underline{{TECHNOLOGIES}}}}}}{{}}\\\\
+          \\resumeItemListStart
+            \\resumeItem{{\\normalsize{{Bullet point 1}}}}
+            \\resumeItem{{\\normalsize{{Bullet point 2}}}}
+            \\resumeItem{{\\normalsize{{Bullet point 3}}}}
+          \\resumeItemListEnd
+          \\vspace{{-13pt}}
 
 Requirements:
-1. Select the 2-3 projects most relevant to this job
-2. For each selected project, rewrite the bullets to emphasize relevant skills
-3. Use JD keywords naturally
-4. Do NOT fabricate achievements - only reframe existing ones
-5. Keep technical accuracy
-6. Each bullet should be one concise, impactful line
+- Select 2-3 most relevant projects for this role
+- Rewrite bullets to emphasize JD keywords
+- Use proper LaTeX escaping (\\%, \\&, etc.)
+- Keep bullets concise and impactful
+- Do NOT add markdown formatting
+- Return ONLY the LaTeX code, no explanations
 
-Return in this EXACT format:
-PROJECT: [Project Title]
-TECH: [Technologies]
-URL: [GitHub URL]
-- Bullet point 1
-- Bullet point 2
-- Bullet point 3
-
-PROJECT: [Next Project Title]
-...
+Start with the first \\resumeProjectHeading and end after the last \\vspace{{-13pt}}
 """
 
-        response_text = self._call_api_with_retry(prompt)
-
-        # Parse the response into project dictionaries
-        tailored_projects = []
-        current_project = None
-
-        for line in response_text.strip().split('\n'):
-            line = line.strip()
-            if line.startswith('PROJECT:'):
-                if current_project:
-                    tailored_projects.append(current_project)
-                current_project = {'bullets': [], 'title': line.replace('PROJECT:', '').strip()}
-            elif line.startswith('TECH:'):
-                if current_project:
-                    current_project['tech'] = line.replace('TECH:', '').strip()
-            elif line.startswith('URL:'):
-                if current_project:
-                    current_project['url'] = line.replace('URL:', '').strip()
-            elif line.startswith('-') and current_project:
-                current_project['bullets'].append(line[1:].strip())
-
-        if current_project:
-            tailored_projects.append(current_project)
-
-        # Fallback: if parsing failed, use original projects
-        if not tailored_projects:
-            print("⚠️  AI response parsing failed, using original projects")
-            return original_projects[:3]
-
-        return tailored_projects
+        return self._call_api_with_retry(prompt)
 
     def tailor_skills(self,
                       original_skills: Dict[str, str],
-                      job_description: str) -> Dict[str, str]:
-        """Reorder and emphasize skills based on JD requirements"""
+                      job_description: str) -> str:
+        """Reorder skills based on JD - returns complete LaTeX code"""
 
         skills_text = "\n".join([f"{cat}: {skills}" for cat, skills in original_skills.items()])
 
         prompt = f"""
-Reorder and emphasize this skills list based on the job requirements. Keep the same categories.
+You are a LaTeX resume expert. Reorder these skills to prioritize those in the job description.
 
 Current Skills:
 {skills_text}
@@ -242,53 +209,29 @@ Current Skills:
 Job Description:
 {job_description}
 
-Requirements:
-- Prioritize skills mentioned in the JD within each category
-- Keep the same category structure
-- Stay truthful - only include skills from the original list
-- You can reorder within categories
+Generate LaTeX code using this EXACT structure:
+     \\textbf{{\\normalsize{{Languages:}}}}{{  \\normalsize{{skill1, skill2, skill3}}}} \\\\
+     \\textbf{{\\normalsize{{AI/ML Frameworks:}}}}{{  \\normalsize{{skill1, skill2, skill3}}}} \\\\
+     \\textbf{{\\normalsize{{Backend/Cloud: }}}}{{  \\normalsize{{skill1, skill2, skill3}}}} \\\\
+     \\textbf{{\\normalsize{{Core Concepts:}}}}{{  \\normalsize{{skill1, skill2, skill3}}}} \\\\
+     \\textbf{{\\normalsize{{Databases:}}}}{{  \\normalsize{{skill1, skill2, skill3}}}} \\\\
+     \\textbf{{\\normalsize{{Developer Tools:}}}}
+    {{\\normalsize{{skill1, skill2, skill3}}}} \\\\
 
-Return in this EXACT format:
-Languages: skill1, skill2, skill3
-AI/ML Frameworks: skill1, skill2, skill3
-Backend/Cloud: skill1, skill2, skill3
-Core Concepts: skill1, skill2, skill3
-Databases: skill1, skill2, skill3
-Developer Tools: skill1, skill2, skill3
+Requirements:
+- Prioritize JD-mentioned skills within each category
+- Keep all 6 categories
+- Use only skills from the original list
+- Return ONLY the LaTeX code, no explanations
 """
 
-        response_text = self._call_api_with_retry(prompt)
-
-        # Parse response back into dictionary
-        tailored_skills = {}
-        for line in response_text.strip().split('\n'):
-            line = line.strip()
-            if ':' in line:
-                key, value = line.split(':', 1)
-                # Map back to config keys
-                key_map = {
-                    'Languages': 'languages',
-                    'AI/ML Frameworks': 'ai_ml',
-                    'Backend/Cloud': 'backend_cloud',
-                    'Core Concepts': 'core_concepts',
-                    'Databases': 'databases',
-                    'Developer Tools': 'dev_tools'
-                }
-                config_key = key_map.get(key.strip(), key.strip().lower().replace(' ', '_').replace('/', '_'))
-                tailored_skills[config_key] = value.strip()
-
-        # Fallback: if parsing failed, return original
-        if not tailored_skills:
-            print("⚠️  Skills parsing failed, using original")
-            return original_skills
-
-        return tailored_skills
+        return self._call_api_with_retry(prompt)
 
     def generate_tailored_resume(self,
                                 company_name: str,
                                 role_title: str,
                                 job_description: str) -> str:
-        """Generate a complete tailored resume using config data"""
+        """Generate a complete tailored resume using direct LaTeX generation"""
 
         print(f"\n🎯 Tailoring resume for {company_name} - {role_title}")
         print("=" * 60)
@@ -306,32 +249,42 @@ Developer Tools: skill1, skill2, skill3
             company_name,
             role_title
         )
-        print(f"New Summary:\n{tailored_summary[:150]}...\n")
 
-        # Tailor projects
+        # Tailor projects (get LaTeX code directly)
         print("🔧 Selecting and reframing projects...")
-        tailored_projects = self.tailor_projects(
+        projects_latex = self.tailor_projects(
             self.config['original_projects'],
             job_description,
             company_name,
             role_title
         )
-        print(f"Selected {len(tailored_projects)} most relevant projects\n")
 
-        # Tailor skills
+        # Tailor skills (get LaTeX code directly)
         print("💡 Optimizing skills section...")
-        tailored_skills = self.tailor_skills(
+        skills_latex = self.tailor_skills(
             self.config['original_skills'],
             job_description
         )
 
-        # Load template and populate
-        template = Template(self.template_content)
+        # Replace sections in base template
+        resume_content = self.base_template
 
-        resume_content = template.render(
-            summary=tailored_summary,
-            projects=tailored_projects,
-            skills=tailored_skills
+        # Replace summary
+        resume_content = resume_content.replace(
+            "{{SUMMARY_PLACEHOLDER}}",
+            tailored_summary
+        )
+
+        # Replace projects
+        resume_content = resume_content.replace(
+            "{{PROJECTS_PLACEHOLDER}}",
+            projects_latex.strip()
+        )
+
+        # Replace skills
+        resume_content = resume_content.replace(
+            "{{SKILLS_PLACEHOLDER}}",
+            skills_latex.strip()
         )
 
         # Save to file
