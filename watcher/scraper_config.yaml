@@ -1,0 +1,131 @@
+# Scraper Configuration
+
+# Global scraping settings
+scraping:
+  max_retries: 3
+  retry_delay: 2  # seconds
+  timeout: 30000  # milliseconds
+  cache_ttl: 3600  # seconds (1 hour)
+  rate_limit_delay: 1  # seconds between requests
+  user_agents:
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+  
+# Company-specific configurations
+companies:
+  line:
+    name: "LY Corporation (LINE)"
+    urls:
+      - "https://careers.linecorp.com/jobs/"
+    selectors:
+      job_cards: 
+        - "div[class*='job']"
+        - "article[class*='job']"
+      title:
+        - "h2"
+        - "h3"
+        - "a"
+      link: "a[href]"
+    keywords:
+      - "graduate"
+      - "engineer"
+      - "developer"
+      - "2026"
+      - "2027"
+    wait_time: 3000
+    
+  rakuten:
+    name: "Rakuten Group"
+    urls:
+      - "https://global.rakuten.com/corp/careers/opportunities/"
+    selectors:
+      job_links: "a[href]"
+    keywords:
+      - "graduate"
+      - "engineer"
+      - "developer"
+      - "ai"
+      - "ml"
+      - "data"
+    wait_time: 3000
+    
+  mercari:
+    name: "Mercari"
+    urls:
+      - "https://careers.mercari.com/en/jobs/"
+    selectors:
+      job_cards: "div.job-card, article.job, div[class*='job-item']"
+      title: "h3, h2, a"
+      link: "a[href]"
+    keywords:
+      - "engineer"
+      - "developer"
+      - "software"
+    wait_time: 5000
+    
+  sony:
+    name: "Sony"
+    urls:
+      - "https://www.sony.com/en/SonyInfo/CorporateInfo/Careers/newgrads/"
+    selectors:
+      job_links: "a[href]"
+    keywords:
+      - "graduate"
+      - "recruitment"
+      - "application"
+      - "career"
+    wait_time: 3000
+    
+  bytedance:
+    name: "ByteDance (TikTok)"
+    urls:
+      - "https://jobs.bytedance.com/en/position?keywords=&category=&location=&project=&type=2"
+    selectors:
+      job_cards: "div[class*='job'], article[class*='job']"
+      title:
+        - "h3"
+        - "h4"
+        - "a"
+      link: "a[href]"
+    wait_time: 5000  # JS-heavy site    
+  toshiba:
+    name: \"Toshiba\"
+    urls:
+      - \"https://www.global.toshiba/ww/recruit/corporate/university/newgraduates.html\"
+    selectors:
+      hrmos_link: \"a[href*='hrmos'], a[href*='bizreach']\"
+    wait_time: 3000
+    follow_redirect: true
+    
+  preferred:
+    name: \"Preferred Networks\"
+    urls:
+      - \"https://open.talentio.com/r/1/c/preferred/homes/4679\"
+    selectors:
+      job_cards: \"div.job-item, div[class*='position'], article\"
+      title: \"h3, h2, a\"
+    keywords:
+      - \"engineer\"
+      - \"graduate\"
+    wait_time: 5000    
+  toshiba:
+    name: "Toshiba"
+    urls:
+      - "https://www.global.toshiba/ww/recruit/corporate/university/newgraduates.html"
+    selectors:
+      hrmos_link: "a[href*='hrmos'], a[href*='bizreach']"
+    wait_time: 3000
+    follow_redirect: true
+    
+  preferred:
+    name: "Preferred Networks"
+    urls:
+      - "https://open.talentio.com/r/1/c/preferred/homes/4679"
+    selectors:
+      job_cards: "div.job-item, div[class*='position'], article"
+      title: "h3, h2, a"
+    keywords:
+      - "engineer"
+      - "graduate"
+    wait_time: 5000

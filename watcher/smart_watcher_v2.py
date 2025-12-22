@@ -537,7 +537,8 @@ class SmartJobScraper:
         matches: List[Dict] = []
 
         try:
-            job_payloads = await CompanyScrapers.scrape_all_companies(browser)
+            scrapers = CompanyScrapers()
+            job_payloads = await scrapers.scrape_all_companies(browser)
         except Exception as exc:
             logger.error(f"Company-specific scrapers failed: {exc}")
             return matches
