@@ -92,7 +92,7 @@ class RakutenScraper(BaseScraper):
     The page lists all job positions in div containers with job descriptions inline.
     We extract each job div that contains Software Engineer positions.
     """
-    
+
     @property
     def company_name(self) -> str:
         return "Rakuten Group"
@@ -107,35 +107,35 @@ class RakutenScraper(BaseScraper):
             if cached_jobs:
                 logger.info(f"{self.company_name}: Returning {len(cached_jobs)} cached jobs")
                 return cached_jobs
-            
+
             logger.info(f"{self.company_name}: Loading single-page job board...")
             await self.navigate_with_retry(page, url, wait_time=3000)
-            
+
             # Strategy: Find job divs that contain detailed position info
             # Based on analysis: divs with class containing 'job' contain position details
             job_containers = await page.locator('div[class*="job"]').all()
-            
+
             logger.info(f"  Found {len(job_containers)} potential job containers")
-            
+
             seen_titles = set()  # Deduplicate by title
-            
+
             for container in job_containers:
                 try:
                     container_text = await container.inner_text()
-                    
+
                     # Must contain "職種" (job type) or "Software Engineer"
                     if '職種' not in container_text and 'Software Engineer' not in container_text:
                         continue
-                    
+
                     # Must be substantial (more than 100 chars)
                     if len(container_text) < 100:
                         continue
-                    
+
                     # Extract company/division name if present
                     # Look for patterns like "Commerce & Marketing Company", "Rakuten Payment, Inc."
                     title_parts = []
                     lines = container_text.split('\n')
-                    
+
                     for line in lines[:10]:  # Check first 10 lines
                         line = line.strip()
                         if 'Company' in line or 'Inc.' in line or 'Division' in line:
@@ -143,21 +143,21 @@ class RakutenScraper(BaseScraper):
                         elif line == 'Software Engineer':
                             title_parts.append(line)
                             break
-                    
+
                     if not title_parts:
                         # Fallback: use first substantial line
                         title_parts = [l for l in lines if l.strip() and len(l.strip()) > 10][:1]
-                    
+
                     if not title_parts:
                         continue
-                    
+
                     title = ' - '.join(title_parts[:2])  # Max 2 parts
-                    
+
                     # Deduplicate by title
                     if title in seen_titles:
                         continue
                     seen_titles.add(title)
-                    
+
                     # Look for entry link in this container
                     entry_link = container.locator('a[href*="entry"], a:has-text("エントリー")').first
                     if await entry_link.count() > 0:
@@ -165,23 +165,23 @@ class RakutenScraper(BaseScraper):
                         entry_url = self.normalize_url(entry_url, url)
                     else:
                         entry_url = url
-                    
+
                     # Extract relevant description (first 500 chars)
                     description = container_text[:500].replace('\n', ' ').strip()
-                    
+
                     jobs.append({
                         'company': self.company_name,
                         'title': title[:100],  # Limit title length
                         'url': entry_url,
                         'text': description
                     })
-                    
+
                     logger.info(f"  Found position: {title[:60]}...")
-                    
+
                 except Exception as e:
                     logger.debug(f"Error processing job container: {e}")
                     continue
-            
+
             # Fallback: If no job containers found, add general entry
             if not jobs:
                 logger.warning(f"{self.company_name}: No job containers found, adding general entry.")
@@ -191,14 +191,14 @@ class RakutenScraper(BaseScraper):
                     'url': url,
                     'text': "Open recruitment for Software Engineer positions across all companies and divisions. Visit page for specific position details and requirements."
                 })
-            
+
             self.cache.set(url, jobs)
 
         except Exception as e:
             logger.error(f"{self.company_name}: Error - {e}", exc_info=True)
         finally:
             await page.close()
-        
+
         return jobs
 
 
@@ -344,7 +344,7 @@ class ByteDanceScraper(BaseScraper):
 
             # Extract job cards
             cards = await page.locator('div[class*="jobCard"]').all()
-            
+
             if not cards:
                 logger.warning(f"{self.company_name}: No job cards found on page.")
                 self.cache.set(url, [])
@@ -374,7 +374,7 @@ class ByteDanceScraper(BaseScraper):
             logger.error(f"{self.company_name}: Error - {e}", exc_info=True)
         finally:
             await page.close()
-        
+
         return jobs
 
 
@@ -472,7 +472,7 @@ class PreferredNetworksScraper(BaseScraper):
 
             # Look for any links related to recruitment/careers
             job_links = await page.locator('a[href*="recruit"], a[href*="career"], a[href*="job"]').all()
-            
+
             if not job_links:
                 logger.warning(f"{self.company_name}: No recruitment links found.")
                 self.cache.set(url, [])
@@ -482,12 +482,12 @@ class PreferredNetworksScraper(BaseScraper):
                 try:
                     title = await link.inner_text()
                     href = await link.get_attribute('href')
-                    
+
                     if title and href and len(title) > 10:
                         # Skip navigation/footer links
                         if any(skip in title.lower() for skip in ['about', 'contact', 'privacy', 'top page']):
                             continue
-                        
+
                         jobs.append({
                             'company': self.company_name,
                             'title': title.strip(),

@@ -48,17 +48,13 @@ class CompanyRule:
 class SmartJobScraper:
     """Semantic job matcher with targeted scraping."""
 
+    # Companies WITHOUT dedicated scrapers in Phase 0 (company_scrapers.py)
+    # These will be scraped using generic L1/L2 logic
+    # NOTE: LINE, Rakuten, ByteDance, Sony, Mercari, Woven, Preferred Networks, and Toshiba
+    # already have dedicated scrapers in Phase 0 - DO NOT add them here to avoid duplicate scraping
     PRIORITY_COMPANIES = {
-        'LY Corporation (LINE)': 'https://www.lycorp.co.jp/en/recruit/newgrads/engineer/',
-        'Rakuten Group': 'https://global.rakuten.com/corp/careers/graduates/recruit_engineer/?l-id=%2Fgraduates%2Fheader-e',
-        'ByteDance (TikTok) Japan': 'https://joinbytedance.com/earlycareers',
-        'Sony Group (Global Recruitment)': 'https://www.sony.com/en/SonyInfo/Careers/japan/',
-        'Woven by Toyota': 'https://woven.toyota/en/careers/',
-        'Mercari Japan': 'https://careers.mercari.com/en/job-categories/engineering/',
-        'Preferred Networks (PFN)': 'https://www.preferred.jp/en/careers',
-        'Toshiba (Global Recruitment)': 'https://www.global.toshiba/ww/recruit/corporate/university/newgraduates.html',
-        'Toshiba (Global Recruitment) 2': 'https://www.global.toshiba/ww/recruit/corporate/university/newgraduates.html',
-
+        # Add other Japanese tech companies that don't have dedicated scrapers yet
+        # 'Company Name': 'URL',
     }
 
     TECH_JOB_BOARDS = {
@@ -136,44 +132,23 @@ class SmartJobScraper:
 
     DEFAULT_MAX_LINKS = 30
     JOB_BOARD_MAX_LINKS = 12
+    # Company-specific link limits (for companies in Phase 1)
     COMPANY_LINK_LIMITS = {
-        'Woven by Toyota': 25,
-        'Rakuten Group': 20,
-        'LY Corporation (LINE)': 15,
+        # Add limits for specific companies as needed
+        # 'Company Name': 25,
     }
 
+    # Company-specific scraping rules (for Phase 1 generic L1/L2 scraping)
+    # Only needed for companies in PRIORITY_COMPANIES that don't have dedicated scrapers
+    # NOTE: Companies with dedicated scrapers (LINE, Rakuten, Sony, etc.) don't need rules here
     COMPANY_RULES: Dict[str, CompanyRule] = {
-        'Rakuten Group': CompanyRule(
-            click_selectors=[
-                'a:has-text("View open positions")',
-                'a:has-text("View open positions from here")',
-            ],
-            allow_text_contains=['view open positions', 'apply'],
-            extra_job_url_patterns=['/recruit', '/opportunities', '/joiners']
-        ),
-        'LY Corporation (LINE)': CompanyRule(
-            click_selectors=['button:has-text("Apply")'],
-            allow_text_contains=[
-                'software engineering specialist',
-                'infra engineering expert',
-                'security engineering expert',
-                'apply'
-            ],
-            extra_job_url_patterns=['/jd']
-        ),
-        'Sony Group (Global Recruitment)': CompanyRule(
-            allow_text_contains=['apply for job opening', 'view all positions', 'sony ai'],
-            extra_job_url_patterns=['myworkdayjobs.com', '/wd/', '/apply']
-        ),
-        'Mercari Japan': CompanyRule(
-            allow_text_contains=['students & new graduates', 'engineering'],
-            extra_job_url_patterns=['boards.greenhouse.io']
-        ),
-        'Woven by Toyota': CompanyRule(
-            allow_text_contains=['learn more', 'apply'],
-            extra_job_url_patterns=['/careers/', '/jobs/'],
-            bypass_title_skip=True
-        ),
+        # Add rules for new companies as needed
+        # Example:
+        # 'Company Name': CompanyRule(
+        #     click_selectors=['button:has-text("View Jobs")'],
+        #     allow_text_contains=['engineer', 'developer'],
+        #     extra_job_url_patterns=['/careers/', '/jobs/']
+        # ),
     }
 
     def __init__(self, db_path='../shared/jobs.db', match_threshold: float = 0.7):
@@ -617,15 +592,19 @@ class SmartJobScraper:
                     matches = await self.run_company_scrapers(browser)
                     all_matches.extend(matches)
 
-                logger.info(f"\n[Phase 1] Starting 2-Level Scan for {len(self.PRIORITY_COMPANIES)} priority companies...")
-                for company, url in self.PRIORITY_COMPANIES.items():
-                    matches = await self.scrape_company_page(
-                        company,
-                        url,
-                        browser=browser,
-                    )
-                    all_matches.extend(matches)
-                    await asyncio.sleep(2)
+                # Phase 1: Only run for companies WITHOUT dedicated scrapers
+                if self.PRIORITY_COMPANIES:
+                    logger.info(f"\n[Phase 1] Starting 2-Level Scan for {len(self.PRIORITY_COMPANIES)} additional companies...")
+                    for company, url in self.PRIORITY_COMPANIES.items():
+                        matches = await self.scrape_company_page(
+                            company,
+                            url,
+                            browser=browser,
+                        )
+                        all_matches.extend(matches)
+                        await asyncio.sleep(2)
+                else:
+                    logger.info("\n[Phase 1] Skipped - All priority companies have dedicated scrapers in Phase 0")
 
                 if scan_job_boards:
                     logger.info(f"\n[Phase 2] Scanning {len(self.TECH_JOB_BOARDS)} job board aggregators...")
