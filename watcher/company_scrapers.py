@@ -131,27 +131,41 @@ class RakutenScraper(BaseScraper):
                     if len(container_text) < 100:
                         continue
 
-                    # Extract company/division name if present
-                    # Look for patterns like "Commerce & Marketing Company", "Rakuten Payment, Inc."
-                    title_parts = []
+                    # Extract actual job position title
+                    # Look for "Software Engineer", "AI Engineer", "Data Scientist", etc.
                     lines = container_text.split('\n')
+                    title = None
+                    company_division = None
 
-                    for line in lines[:10]:  # Check first 10 lines
+                    # Find job title keywords
+                    job_keywords = ['Software Engineer', 'AI Engineer', 'Machine Learning Engineer', 
+                                   'Data Scientist', 'Data Engineer', 'Research Scientist',
+                                   'Product Manager', 'Project Manager', 'Infra Engineer']
+                    
+                    for line in lines[:15]:
                         line = line.strip()
-                        if 'Company' in line or 'Inc.' in line or 'Division' in line:
-                            title_parts.append(line)
-                        elif line == 'Software Engineer':
-                            title_parts.append(line)
+                        # Find job title
+                        if any(keyword in line for keyword in job_keywords):
+                            title = line
+                        # Find company/division (but only use if we have a title)
+                        elif ('Company' in line or 'Inc.' in line or 'Division' in line) and len(line) < 80:
+                            company_division = line
+                        
+                        # Stop if we have both
+                        if title and company_division:
                             break
-
-                    if not title_parts:
-                        # Fallback: use first substantial line
-                        title_parts = [l for l in lines if l.strip() and len(l.strip()) > 10][:1]
-
-                    if not title_parts:
+                    
+                    # Must have at least a title
+                    if not title:
                         continue
-
-                    title = ' - '.join(title_parts[:2])  # Max 2 parts
+                    
+                    # Combine: "Company/Division - Job Title" or just "Job Title"
+                    if company_division:
+                        title = f"{company_division} - {title}"
+                    
+                    # Skip if title is too generic (just company name)
+                    if not any(keyword in title for keyword in job_keywords):
+                        continue
 
                     # Deduplicate by title
                     if title in seen_titles:
@@ -164,7 +178,11 @@ class RakutenScraper(BaseScraper):
                         entry_url = await entry_link.get_attribute('href')
                         entry_url = self.normalize_url(entry_url, url)
                     else:
-                        entry_url = url
+                        # No individual link found - make URL unique by adding job title fragment
+                        # This prevents deduplication from removing all but one job
+                        import hashlib
+                        title_hash = hashlib.md5(title.encode()).hexdigest()[:8]
+                        entry_url = f"{url}#{title_hash}"
 
                     # Extract relevant description (first 500 chars)
                     description = container_text[:500].replace('\n', ' ').strip()
@@ -484,8 +502,16 @@ class PreferredNetworksScraper(BaseScraper):
                     href = await link.get_attribute('href')
 
                     if title and href and len(title) > 10:
-                        # Skip navigation/footer links
-                        if any(skip in title.lower() for skip in ['about', 'contact', 'privacy', 'top page']):
+                        # Skip navigation/footer/info links
+                        skip_terms = ['about', 'contact', 'privacy', 'top page', 'culture', 'benefits', 
+                                     'faq', 'frequently', 'questions', '会社概要', 'よくある']
+                        if any(skip in title.lower() for skip in skip_terms):
+                            continue
+                        
+                        # Must contain job-related keywords
+                        job_keywords = ['engineer', 'developer', 'scientist', 'researcher', 'recruit', 
+                                       '採用', 'エンジニア', 'intern', 'graduate', 'position']
+                        if not any(keyword in title.lower() for keyword in job_keywords):
                             continue
 
                         jobs.append({

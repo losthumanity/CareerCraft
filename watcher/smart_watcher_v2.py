@@ -86,14 +86,47 @@ class SmartJobScraper:
         'visa sponsorship', 'english', 'no japanese required'
     ]
 
-    # Deal breakers (auto-reject if found)
-    BAD_SIGNALS = [
-        'PhD required', 'doctorate required',
-        '5+ years', '3+ years experience', 'minimum 3 years',
-        'senior', 'lead', 'principal', 'staff engineer',
-        'manager', 'director', 'VP', 'head of',
-        'N1 required', 'N2 required', 'Japanese fluency required',
-        'business level japanese', 'native japanese'
+    # Hard deal breakers (auto-reject - these are non-negotiable)
+    HARD_DEAL_BREAKERS = [
+        'PhD required', 'doctorate required', 'doctoral degree required',
+        'must have PhD', 'PhD is required', 'PhD degree required',
+        '5+ years required', '5+ years of experience required', 
+        'minimum 5 years', 'at least 5 years',
+        '10+ years', '7+ years', 'minimum 10 years',
+        'N1 required', 'N1 certification required', 'JLPT N1 required',
+        'N2 required', 'JLPT N2 required',
+        'Japanese fluency required', 'business level japanese required',
+        'native japanese required', 'native level japanese'
+    ]
+    
+    # Soft penalties (reduce score but don't auto-reject)
+    SENIORITY_PENALTIES = [
+        ('senior', -0.30),
+        ('lead', -0.35),
+        ('principal', -0.40),
+        ('staff engineer', -0.40),
+        ('manager', -0.35),
+        ('director', -0.45),
+        ('VP', -0.50),
+        ('head of', -0.45),
+        ('3+ years', -0.20),
+        ('3-5 years', -0.20),
+        ('minimum 3 years', -0.25),
+        ('4+ years', -0.25),
+        ('PhD preferred', -0.10),
+        ('master preferred', -0.05),
+        ('masters preferred', -0.05),
+    ]
+    
+    # Entry-level indicators (boost score)
+    ENTRY_LEVEL_SIGNALS = [
+        'new grad', 'new graduate', 'recent graduate',
+        'entry level', 'entry-level', 'junior',
+        'intern', 'internship', 'graduate program',
+        'early career', 'fresh graduate', 'university graduate',
+        '2025', '2026', '2027',  # Graduation years
+        'no experience required', '0-2 years',
+        '新卒', '新入社員'  # Japanese: new graduate, new employee
     ]
 
     # Navigation/UI elements to ALWAYS exclude (not real jobs)
@@ -151,7 +184,7 @@ class SmartJobScraper:
         # ),
     }
 
-    def __init__(self, db_path='../shared/jobs.db', match_threshold: float = 0.7):
+    def __init__(self, db_path='../shared/jobs.db', match_threshold: float = 0.5):
         self.db_path = db_path
         self.match_threshold = match_threshold
         self._ensure_database()
@@ -329,36 +362,83 @@ class SmartJobScraper:
         required_keywords: Optional[List[str]] = None,
     ) -> float:
         """
-        Calculate semantic similarity between job and your profile.
+        Intelligent semantic matching with multi-stage analysis:
+        1. Keyword pre-filter (fast rejection)
+        2. Hard deal breakers (non-negotiable requirements)
+        3. Neural similarity (semantic understanding)
+        4. Entry-level boost (prioritize new grad roles)
+        5. Seniority penalty (downrank senior positions)
+        6. Degree requirement analysis (context-aware)
+        7. Keyword boost (domain match bonus)
+        
         Returns: 0.0 to 1.0 (higher = better match)
-
-        Args:
-            job_text: The job description or link text
-            required_keywords: Override the default MUST_HAVE keywords. Pass an empty list to skip.
         """
-        # Quick keyword filter first (saves compute)
         job_lower = job_text.lower()
 
+        # Stage 1: Keyword pre-filter
         keywords = self.MUST_HAVE if required_keywords is None else required_keywords
-
         if keywords:
             if not any(keyword in job_lower for keyword in keywords):
                 return 0.0
 
-        # Deal breakers (always check)
-        if any(bad in job_lower for bad in self.BAD_SIGNALS):
-            return 0.0
+        # Stage 2: Hard deal breakers (auto-reject)
+        for deal_breaker in self.HARD_DEAL_BREAKERS:
+            if deal_breaker.lower() in job_lower:
+                logger.debug(f"  ❌ Rejected: Found hard deal breaker '{deal_breaker}'")
+                return 0.0
 
-        # Compute semantic similarity
+        # Stage 3: Compute neural semantic similarity
         job_embedding = model.encode(job_text)
         similarity = np.dot(job_embedding, profile_embedding) / (
             np.linalg.norm(job_embedding) * np.linalg.norm(profile_embedding)
         )
+        
+        score = similarity
+        adjustments = []
 
-        # Boost score if contains good signals
-        boost = sum(0.05 for signal in self.GOOD_SIGNALS if signal.lower() in job_lower)
+        # Stage 4: Entry-level boost (you're a new grad!)
+        entry_level_matches = [signal for signal in self.ENTRY_LEVEL_SIGNALS if signal.lower() in job_lower]
+        if entry_level_matches:
+            boost = min(0.15, len(entry_level_matches) * 0.05)  # Cap at +0.15
+            score += boost
+            adjustments.append(f"+{boost:.2f} entry-level ({', '.join(entry_level_matches[:2])})")
 
-        return min(1.0, similarity + boost)
+        # Stage 5: Seniority penalty (downrank senior roles)
+        for keyword, penalty in self.SENIORITY_PENALTIES:
+            if keyword.lower() in job_lower:
+                score += penalty  # penalty is negative
+                adjustments.append(f"{penalty:.2f} seniority ({keyword})")
+                break  # Only apply strongest penalty
+
+        # Stage 6: Degree requirement analysis (context-aware)
+        # Check if PhD/Masters is PREFERRED (not required) - this is OK for new grads
+        if 'phd preferred' in job_lower or 'doctoral preferred' in job_lower:
+            score -= 0.10  # Small penalty, not a deal breaker
+            adjustments.append("-0.10 PhD preferred (not required)")
+        elif 'masters preferred' in job_lower or "master's preferred" in job_lower:
+            score -= 0.05  # Tiny penalty
+            adjustments.append("-0.05 Masters preferred")
+        
+        # Check for explicit entry-level acceptance
+        if any(phrase in job_lower for phrase in [
+            'bachelor', 'undergraduate', 'bs degree', 'b.s. degree',
+            "bachelor's", 'bachelors degree', '学士', '大学卒'
+        ]):
+            score += 0.08  # Boost for bachelor-level roles
+            adjustments.append("+0.08 bachelor's level")
+
+        # Stage 7: Domain keyword boost (your specialization)
+        good_matches = [signal for signal in self.GOOD_SIGNALS if signal.lower() in job_lower]
+        if good_matches:
+            boost = min(0.20, len(good_matches) * 0.05)  # Cap at +0.20
+            score += boost
+            adjustments.append(f"+{boost:.2f} keywords ({len(good_matches)} matches)")
+
+        # Log scoring breakdown for transparency
+        if adjustments and score > 0.20:
+            logger.debug(f"  📊 Score: {similarity:.2f} → {score:.2f} | {' | '.join(adjustments)}")
+
+        return max(0.0, min(1.0, score))  # Clamp to [0, 1]
 
     async def _get_full_page_text(self, page, url: str) -> str:
         """
@@ -506,7 +586,11 @@ class SmartJobScraper:
                 await temp_browser.close()
 
     async def run_company_scrapers(self, browser) -> List[Dict]:
-        """Use purpose-built scrapers for sites that break generic parsing."""
+        """Use purpose-built scrapers for sites that break generic parsing.
+        
+        These scrapers target specific new grad/entry-level pages, so we trust their results
+        and use a lower semantic threshold (0.3) to avoid filtering out relevant jobs.
+        """
 
         logger.info("\n[Phase 0] Running company-specific scrapers...")
         matches: List[Dict] = []
@@ -518,21 +602,38 @@ class SmartJobScraper:
             logger.error(f"Company-specific scrapers failed: {exc}")
             return matches
 
+        logger.info(f"Processing {len(job_payloads)} jobs from company scrapers...")
+        
         for payload in job_payloads:
             job_url = payload.get('url')
             job_title = payload.get('title', '').strip()
             job_text = payload.get('text') or job_title
 
             if not job_url or not job_title or not job_text:
+                logger.debug(f"  Skipping invalid payload: {payload}")
                 continue
 
             url_hash = hashlib.sha256(job_url.encode()).hexdigest()
             if url_hash in self.seen_hashes:
+                logger.debug(f"  Duplicate URL: {job_title[:50]}")
                 continue
 
-            score = self.semantic_match_score(job_text, required_keywords=self.GRAD_KEYWORDS)
-            if score < self.match_threshold:
-                continue
+            # Company-specific scrapers target new grad/entry-level pages
+            # Check for clear engineering job title keywords first
+            engineering_keywords = ['engineer', 'scientist', 'developer', 'researcher', 'architect', 
+                                   'エンジニア', '開発', '研究']
+            has_engineering_title = any(kw in job_title.lower() for kw in engineering_keywords)
+            
+            if has_engineering_title:
+                # Trust engineering titles from pre-filtered company pages
+                score = 0.50  # Assign mid-range score for engineering titles
+                logger.debug(f"  Engineering title detected: {job_title[:50]} -> Score: {score:.2f}")
+            else:
+                # Non-engineering titles: use semantic matching with low threshold
+                score = self.semantic_match_score(job_text, required_keywords=[])
+                if score < 0.25:  # Filter out non-job content (FAQ, Culture pages, etc.)
+                    logger.debug(f"  Filtered: {job_title[:50]} (Score: {score:.2f})")
+                    continue
 
             matches.append({
                 'company': payload.get('company', 'Unknown'),
